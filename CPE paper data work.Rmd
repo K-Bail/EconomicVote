@@ -1,0 +1,367 @@
+---
+title: "Untitled"
+author: "Sarah L."
+date: "12/1/2018"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+
+```{r}
+require(RCurl)
+finaldata<- read.csv(text = getURL("https://raw.githubusercontent.com/K-Bail/EconomicVote/master/finaldata.csv"))
+
+#cses4_reduced <- cses4[,c("D1004", "D1006", "D1006_UN", "D1006_NAM", "D1008", "D1009", "D1015", "D2003", "D2010", "D2020", "D3003_1", "D5007", "D5008", "D3005_PR_1", "D3005_PR_2", "D3005_LH", "D3005_UH", "D3006_PR_1", "D3006_PR_2", "D3006_LH_PL", "D3006_LH_DC", "D3006_LH_PF", "D3006_UH_PL", "D3006_UH_DC", "D3006_UH_PF")]
+
+## election study, polity cses code, N country code, country name, election year, respondent code, election type, education, employment status, household income, perception of the economy, president's party, PM's party, vote choices(4 total)
+
+## need to fill in the inc_vote variable
+
+### if head = 1, then need D5007 and D3006_PR_1 to match
+### if head = 0, then need D5008 and D3006_UH_PL to match
+### if head = 0 and NA for D3006_UH_PL, then need D5008 and D3006_LH_PL to match
+
+
+table(cses4$D5007) # party of the president before election
+table(cses4$D5008) # party of the PM before election
+table(cses4$D3006_PR_1) # vote choice for president, first round
+table(cses4$D3006_PR_2) # vote choice for president, second round
+table(cses4$D3006_LH_PL) # vote choice for lower house, party list
+table(cses4$D3006_UH_PL) # vote choice for upper house, party list
+
+#####
+table(finaldata$inc_vote)
+
+finaldata$inc_vote[finaldata$Head==1 & finaldata$D5007==finaldata$D3006_PR_1] <- 1
+table(finaldata$inc_vote)
+table(finaldata$D3006_PR_1, finaldata$D5007, finaldata$Head)
+
+sum(finaldata$D5008==finaldata$D3006_UH_PL & finaldata$Head==2)
+table(finaldata$D3006_UH_DC, finaldata$D5008, finaldata$Head)
+
+sum(finaldata$D5008==finaldata$D3006_LH_PL & finaldata$Head==2)
+table(finaldata$D3006_LH_PL, finaldata$D5008, finaldata$Head)
+
+
+
+
+
+
+sum(finaldata$D5007==finaldata$D3006_PR_1 & finaldata$Head==1)
+
+table(finaldata$D3006_LH_PL)
+table(finaldata$D5008)
+
+finaldata$inc_vote[finaldata$Head==0 & finaldata$D5008==finaldata$D3006_UH_PL] <- 1
+table(finaldata$inc_vote)
+
+
+
+
+# if Head == 1 aka presidential, then if D5007= D3006_PR_1, they voted for incumbent party!
+finaldata$inc_vote <- ifelse(finaldata$Head==1 & cses4_reduced$D5007==cses4_reduced$D3006_PR_1, 1,0)
+
+
+
+
+
+
+finaldata$inc_vote <- ifelse(finaldata$Head==1, ifelse(cses4_reduced$D5007==cses4_reduced$D3006_PR_1, 1, 0), ifelse(cses4_reduced$D5008==cses4_reduced$D3006_UH_PL, 1, 0))
+
+table(finaldata$inc_vote)
+table(finaldata$Election.Type)
+
+cses4_reduced$D3006_UH_PL[cses4_reduced$D3006_UH_PL>88]<-NA
+table(cses4_reduced$D3006_UH_PL)
+
+
+
+
+
+
+
+###
+
+library(car)
+?recode
+finaldata$D3003_1 = recode(finaldata$D3003_1, '1=5;5=1')
+table(finaldata$D3003_1)
+
+
+#
+#
+#
+
+write.csv(finaldata, 'useme.csv')
+```
+
+
+```{r}
+data = read.csv("useme.csv")
+names(data)
+table(data$Country)
+
+
+library(ggplot2)
+?ggplot
+figure1 <- ggplot(data=data, aes(x=Country, y=EF)) + geom_point(col="blue", size=2)
+figure1
+figure1 + theme(axis.text.x = element_text(angle = 60, hjust = 1)) + xlab("Country") + ylab("Ethnic Fractionalization") + ggtitle("Figure 1: Range of Ethnic Fractionalization") + theme(plot.title = element_text(size=10))
+
+
+
+
+
+#actual MLM!
+library(lme4)
+library(lmerTest)
+library(languageR)
+library(lmtest)
+
+names(data)
+emptymodel <- lmer(inc_vote ~ 1+(1|ccode), data=data)
+summary(emptymodel)
+
+# total variance = [1] 0.05544
+0.01966 + 0.03578
+# country level = [1] 0.3546176
+0.01966/0.05544
+# individual level = [1] 0.6453824
+1 - 0.3546176
+
+names(data)
+table(data$D3003_1)
+data$percep_135 <- data$D3003_1
+table(data$percep_135)
+data$percep_135[data$percep_135>5] <- NA
+
+
+## economic voting model
+## randomly varying slope for each country, rest is constant across countries
+economicvoting <- lmer(inc_vote ~  D3003_1 + GDP.growth + (1|ccode), data=data)
+summary(economicvoting)
+
+#level 2 explained
+#[1] 0.1983723
+(0.01966 - 0.01576)/0.01966
+
+#level 1 explained
+#[1] 0.0474259
+(0.03578 - 0.03156)/0.03578
+
+
+
+names(data)
+ethnicmodel <- lmer(inc_vote ~  D3003_1 + GDP.growth + EF + D3003_1*EF + (1|ccode), data=data)
+summary(ethnicmodel)
+
+#level 2 explained, compared to model without EF
+#[1] -0.07423858
+(0.01576 - 0.01693)/0.01576
+
+#level 1 explained
+#[1] 0.0256654
+(0.03156 - 0.03075)/0.03156
+
+lrtest(economicvoting, ethnicmodel)
+anova(economicvoting, ethnicmodel)
+
+
+## what controls/other variables to include?
+### employment D2010
+### electoral system 
+### household income D2020
+### education D2003
+
+
+### regression for each country
+### incumbent vote ~ perceptions + EF + perceptions*EF + education + employment + income
+
+table(data$cname)
+
+Argentina <- glm(Incumbent.Vote ~ Education + Employment + Household.Income + Perception.of.Economy, data = subset(data, cname == "Argentina"), family = "binomial")
+summary(Argentina)
+
+Brazil <- glm(Incumbent.Vote ~ Education + Employment + Household.Income + Perception.of.Economy, data = subset(data, cname == "Brazil"), family = "binomial")
+summary(Brazil)
+
+France <- glm(Incumbent.Vote ~ Education + Employment + Household.Income + Perception.of.Economy, data = subset(data, cname == "France"), family = "binomial")
+summary(France)
+
+Kenya <- glm(Incumbent.Vote ~ Education + Employment + Household.Income + Perception.of.Economy, data = subset(data, cname == "Kenya"), family = "binomial")
+summary(Kenya)
+
+Mexico <- glm(Incumbent.Vote ~ Education + Employment + Household.Income + Perception.of.Economy, data = subset(data, cname == "Mexico"), family = "binomial")
+summary(Mexico)
+
+Peru <- glm(Incumbent.Vote ~ Education + Employment + Household.Income + Perception.of.Economy, data = subset(data, cname == "Peru"), family = "binomial")
+summary(Peru)
+
+Philippines <- glm(Incumbent.Vote ~ Education + Employment + Household.Income + Perception.of.Economy, data = subset(data, cname == "Philippines"), family = "binomial")
+summary(Philippines)
+
+Romania <- glm(Incumbent.Vote ~ Education + Employment + Household.Income + Perception.of.Economy, data = subset(data, cname == "Romania"), family = "binomial")
+summary(Romania)
+
+Taiwan <- glm(Incumbent.Vote ~ Education + Employment + Household.Income + Perception.of.Economy, data = subset(data, cname == "Taiwan"), family = "binomial")
+summary(Taiwan)
+
+United_States <- glm(Incumbent.Vote ~ Education + Employment + Household.Income + Perception.of.Economy, data = subset(data, cname == "United States"), family = "binomial")
+summary(United_States)
+
+regressions = read.csv("regressions.csv")
+names(regressions)
+
+library(ggplot2)
+
+figure2 <- ggplot(data=regressions, aes(x=Beta, y=Ethnic.Fractionalization)) + geom_point(col="blue", size=2) + xlab("Coefficient on Perceptions of the Economy") + ylab("Ethnic Fractionalization") + ggtitle("Figure 2: Comparing Across Countries") + theme(plot.title = element_text(size=10)) + geom_text(aes(label=Country),hjust=0, vjust=0, size=3) + geom_point(aes(col=Did.not.converge), size=2) + theme(legend.position="None") 
+
+figure2
+
+
+```
+
+
+
+```{r}
+### MLM paper work below
+model_edu <- lmer(inc_vote ~ D2003 + (1|ccode), data=useme)
+summary(model_edu)
+
+#level 2 explained
+#[1] -0.003361345
+(0.0238 - 0.02388)/0.0238
+
+#level 1 explained
+#[1] 0.0001040583
+(0.0961 - 0.09609)/0.0961
+
+#keep it in the model, even though it sucks
+
+model_edu_empl <- lmer(inc_vote ~ D2003 + D2010 + (1|ccode), data=useme)
+summary(model_edu_empl)
+
+#level 2 explained
+#[1] -0.0004187605
+(0.02388 - 0.02389)/0.02388
+
+#level 1 explained
+#[1] -0.0002081382
+(0.09609 - 0.09611)/0.09609
+
+#doesn't explain any more variation and not sig, NOT IN MODEL
+
+model_edu_income <- lmer(inc_vote ~ D2003 + D2020 + (1|ccode), data=useme)
+summary(model_edu_income)
+
+#level 2 explained
+#[1] -0.007118928
+(0.02388 - 0.02405)/0.02388
+
+#level 1 explained
+#[1] 0.0003122073
+(0.09609 - 0.09606)/0.09609
+
+# explains a bit more variation, include in model
+
+model_edu_income_rural <- lmer(inc_vote ~ D2003 + D2020 + D2031 + (1|ccode), data=useme)
+summary(model_edu_income_rural)
+
+#level 2 explained
+#[1] -0.02785863
+(0.02405 - 0.02472)/0.02405
+
+#level 1 explained
+#[1] 0.0001041016
+(0.09606 - 0.09605)/0.09606
+
+#explains some more variation though not sig, include in model
+
+model_edu_income_rural_state <- lmer(inc_vote ~ D2003 + D2020 + D2031 + D3003_1 + (1|ccode), data=useme)
+summary(model_edu_income_rural_state)
+
+#level 2 explained
+#[1] -0.0881877
+(0.02472 - 0.02690)/0.02472
+
+#level 1 explained
+#[1] 0.01915669
+(0.09605 - 0.09421)/0.09605
+
+# explains some individual level and sig, will include
+
+#
+#
+## FIX BELOW THIS
+#
+#
+
+model_with_gdpgrowth <- lmer(inc_vote ~ D2003 + D2020 + D2031 + D3003_1 + imf_gdpgr + (1|ccode), data=useme)
+summary(model_with_gdpgrowth)
+
+#level 2 explained
+#[1] 0.5620818
+(0.02690 - 0.01178)/0.02690
+
+#level 1 explained
+#[1] 0
+(0.09421 - 0.09421)/0.09421
+
+# explains lots of level 2 and sig - include
+
+model_with_infl <- lmer(inc_vote ~ D2003 + D2020 + D2031 + D3003_1 + imf_gdpgr + imf_inflch + (1|ccode), data=useme)
+summary(model_with_infl)
+
+#level 2 explained
+#[1] 0.2011036
+(0.01178 - 0.009411)/0.01178
+
+#level 1 explained
+#[1] 0
+(0.09421 - 0.094214)/0.09421
+
+# erases some sig. of GDP growth, but explains more of the level 2 variance so keep it in
+
+# checking for randomness of shit....
+
+finalmodel_norandom <- lmer(inc_vote ~ D2003 + D2020 + D2031 + D3003_1 + imf_gdpgr + imf_inflch + (1|ccode), data=useme)
+summary(finalmodel_norandom)
+
+
+finalmodel_varyincome <- lmer(inc_vote ~ D2003 + D2020 + D2031 + D3003_1 + imf_gdpgr + imf_inflch + (D2020|ccode), data=useme)
+summary(finalmodel_varyincome)
+
+#level 2 explained
+#[1] 0.06333015
+(0.009411 - 0.008815)/0.009411
+
+#level 1 explained
+#[1] 0.9337678
+(0.094214 - 0.006240)/0.094214
+
+lrtest(finalmodel_norandom, finalmodel_varyincome)
+anova(finalmodel_norandom, finalmodel_varyincome)
+
+## final FINAL model has education, income, rural, state of economy, GDP growth, inflation change, and lets income randomly vary
+
+## putting in variable of interest
+
+
+ethnictest <- lmer(inc_vote ~ D2003 + D2020 + D2031 + D3003_1 + imf_gdpgr + imf_inflch + al_ethnic + D3003_1*al_ethnic + (D2020|ccode), data=useme)
+summary(ethnictest)
+
+#level 2 explained
+#[1] 0.7351106
+(0.008815 - 0.002335)/0.008815
+
+#level 1 explained
+#[1] -0.01586538
+(0.006240 - 0.006339)/0.006240
+
+lrtest(finalmodel_varyincome, ethnictest)
+anova(finalmodel_varyincome, ethnictest)
+```
